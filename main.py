@@ -1,39 +1,42 @@
+import cx_Oracle
+import pandas as pd
 from langchain.llms import AutoLM
 from langchain.llms.prompts import ChainGPTLMTemplatePrompt
 from langchain.pipelines import Pipeline
-from langchain.storage import SQLSource, SQLiteTarget
+from langchain.storage import SQLiteTarget
 
-# Conectar ao banco de dados SQL (origem)
-sql_source = SQLSource(
-    "mysql+pymysql://user:password@host:port/database",
-    query="SELECT * FROM produtos"
-)
+# Credenciais e detalhes do banco de dados
+con_string = "oracle+cx_oracle://user:password@host:port/database"
 
-# Criar banco de dados SQLite (destino)
-sqlite_target = SQLiteTarget("treinamento_qa.sqlite")
+# Conectar ao banco de dados
+connection = cx_Oracle.connect(con_string)
 
-# Carregar os dados do produto
+# Criar cursor para executar consultas
+cursor = connection.cursor()
+
+# Consulta SQL para selecionar dados do produto
+query = "SELECT * FROM produtos"
+
+# Executar a consulta e recuperar os dados
+cursor.execute(query)
+produtos = cursor.fetchall()
+
+# Fechando o cursor
+cursor.close()
+
+# Convertendo os dados em um DataFrame do Pandas
+produtos_df = pd.DataFrame(produtos, columns=["coluna1", "coluna2", ...])
+
 def load_produtos(ctx):
-    produtos = ctx.get(sql_source)
+    produtos = ctx.get(produtos_df)
     return produtos
 
-# Criar modelo LLM (substitua por sua LLM preferida)
-llm = AutoLM("gpt3")  # Exemplo, substitua por endpoint ou classe LLM compatível
-
-# Criar template de prompt para perguntas e respostas
-prompt_template = ChainGPTLMTemplatePrompt(
-    input_text="Pergunta: {{ question }}\nResposta: {{ answer }}",
-    instruction="Respond to the following question about the product:",
-)
-
-# Função para gerar pares pergunta-resposta
 def generate_qa(produto):
-    # Exemplos de perguntas
+    # Exemplos de perguntas em português
     pergunta = f"Qual a cor do {produto['nome']}?"
     resposta = f"A cor do {produto['nome']} é {produto['cor']}"
     return pergunta, resposta
 
-# Pipeline para processar dados e gerar pares QA
 def create_qa_pairs(produtos):
     qa_pairs = []
     for produto in produtos:
@@ -41,7 +44,25 @@ def create_qa_pairs(produtos):
         qa_pairs.append({"question": pergunta, "answer": resposta})
     return qa_pairs
 
-# Construir o pipeline LangChain
+# Criar banco de dados SQLite
+sqlite_target = SQLiteTarget("treinamento_qa.sqlite")
+
+# Criar tabelas e colunas
+sqlite_target.create_table(
+    "qa_pairs",
+    columns={"id": "INTEGER PRIMARY KEY", "question": "TEXT", "answer": "TEXT"},
+)
+
+# Modelo LLM em português (substitua por sua LLM preferida)
+llm = AutoLM("gpt3-portuguese")
+
+# Template de prompt em português
+prompt_template = ChainGPTLMTemplatePrompt(
+    input_text="Pergunta: {{ question }}\nResposta: {{ answer }}",
+    instruction="Responda à seguinte pergunta sobre o produto:",
+)
+
+# Construir o pipeline
 pipeline = Pipeline(
     load_produtos,
     llm.run,
@@ -50,13 +71,7 @@ pipeline = Pipeline(
     storage=sqlite_target,
 )
 
-# Criar tabelas e colunas no banco de dados SQLite
-pipeline.storage.create_table(
-    "qa_pairs",
-    columns={"id": "INTEGER PRIMARY KEY", "question": "TEXT", "answer": "TEXT"},
-)
-
-# Executar o pipeline para gerar pares pergunta-resposta
+# Executar o pipeline
 pipeline.run()
 
-print("Dados de treinamento gerados e armazenados em treinamento_qa.sqlite!")
+print("Dados de treinamento em português gerados e armazenados em treinamento_qa.sqlite!")
